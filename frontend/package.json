@@ -19,6 +19,7 @@
 		"autoprefixer": "^10.4.20",
 		"eslint": "^9.7.0",
 		"eslint-plugin-svelte": "^2.36.0",
+		"flowbite-svelte-icons": "^1.6.2",
 		"globals": "^15.0.0",
 		"svelte": "^5.0.0",
 		"svelte-check": "^4.0.0",
@@ -28,6 +29,10 @@
 		"vite": "^5.4.11"
 	},
 	"dependencies": {
-		"@tailwindcss/typography": "^0.5.15"
+		"@popperjs/core": "^2.11.8",
+		"@tailwindcss/typography": "^0.5.15",
+		"flowbite": "^2.5.2",
+		"flowbite-svelte": "^0.47.4",
+		"tailwind-merge": "^2.6.0"
 	}
 }
