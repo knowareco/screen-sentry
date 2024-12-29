@@ -1,6 +1,5 @@
 <script>
-  import { Navbar, NavBrand, Button } from 'flowbite-svelte';
-  import { MoonOutline } from 'flowbite-svelte-icons';
+  import { Navbar, NavBrand, DarkMode } from 'flowbite-svelte';
 </script>
 
 <Navbar>
@@ -15,7 +14,5 @@
     </span>
   </NavBrand>
 
-  <Button color="purple" pill={true} class="!p-2">
-    <MoonOutline class="w-5 h-5" />
-  </Button>
+  <DarkMode />
 </Navbar>
