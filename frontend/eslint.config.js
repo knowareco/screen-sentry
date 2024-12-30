@@ -1,31 +1,17 @@
-import js from '@eslint/js';
-import { includeIgnoreFile } from '@eslint/compat';
-import svelte from 'eslint-plugin-svelte';
-import globals from 'globals';
-import { fileURLToPath } from 'node:url';
-import ts from 'typescript-eslint';
-const gitignorePath = fileURLToPath(new URL("./.gitignore", import.meta.url));
+import pluginVue from 'eslint-plugin-vue'
+import vueTsEslintConfig from '@vue/eslint-config-typescript'
 
-export default ts.config(
-  includeIgnoreFile(gitignorePath),
-  js.configs.recommended,
-  ...ts.configs.recommended,
-  ...svelte.configs["flat/recommended"],
+export default [
   {
-    languageOptions: {
-	  globals: {
-	    ...globals.browser,
-	    ...globals.node
-	  }
-	}
+    name: 'app/files-to-lint',
+    files: ['**/*.{ts,mts,tsx,vue}'],
   },
-  {
-    files: ["**/*.svelte"],
 
-    languageOptions: {
-	  parserOptions: {
-	    parser: ts.parser
-	  }
-	}
-  }
-);
+  {
+    name: 'app/files-to-ignore',
+    ignores: ['**/dist/**', '**/dist-ssr/**', '**/coverage/**'],
+  },
+
+  ...pluginVue.configs['flat/essential'],
+  ...vueTsEslintConfig(),
+]
