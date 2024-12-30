@@ -4,13 +4,9 @@
 .gcc-flags.json
 .ccls
 .cache
+.clangd
 compile_commands.json
-
-# Frontend
-frontend/node_modules
-frontend/.svelte-kit
-frontend/build
-frontend/.output
+sdkconfig.*.old
 
 # OS
 .DS_Store
