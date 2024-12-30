@@ -1,11 +1,11 @@
 <script setup lang="ts">
-    import { RouterView } from 'vue-router';
+    import DeviceHome from '@/views/DeviceHome.vue';
 </script>
 
 <template>
     <header>
     </header>
 
-    <RouterView />
+    <DeviceHome />
 </template>
 

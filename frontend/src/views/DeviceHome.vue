@@ -41,7 +41,6 @@
 
 <script setup lang="ts">
     import { ref, onMounted, onBeforeUnmount } from 'vue';
-    import axios from 'axios';
 
     const isLoading = ref<boolean>(true);
     const signalStatus = ref<SignalStatus>(SignalStatus.OFF);
@@ -84,8 +83,15 @@
 
     async function fetchSignalStatus() {
         try {
-            const response = await axios.get(`${backendURL}/api/signal-status`);
-            signalStatus.value = response.data.signalStatus;
+            const response = await fetch(`${backendURL}/api/signal-status`);
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch signal status');
+            }
+
+            const data = await response.json();
+
+            signalStatus.value = data.signalStatus;
         } catch (error) {
             console.error('Error fetching signal status: ', error);
         } finally {
@@ -95,8 +101,15 @@
 
     async function fetchConnectionStatus() {
         try {
-            const response = await axios.get(`${backendURL}/api/connection-status`);
-            isConnected.value = response.data.isConnected;
+            const response = await fetch(`${backendURL}/api/connection-status`);
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch connection status');
+            }
+
+            const data = await response.json();
+
+            isConnected.value = data.isConnected;
         } catch (error) {
             console.error('Error fetching connection status: ', error);
         }
@@ -106,13 +119,19 @@
         isLoading.value = true;
 
         try {
-            const response = await axios.post(
-                `${backendURL}/api/toggle-signal`,
-                { status },
-                { headers: { 'Content-Type': 'application/json' } }
-            );
+            const response = await fetch(`${backendURL}/api/toggle-signal`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
 
-            if (response.data.success) {
+            if (!response.ok) {
+                throw new Error('Failed to toggle signal');
+            }
+
+            const data = await response.json();
+
+            if (data.success) {
                 signalStatus.value = response.data.status;
             } else {
                 throw new Error(response.data.message || 'Failed to toggle signal');
