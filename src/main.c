@@ -2,8 +2,10 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "esp_http_server.h"
@@ -17,18 +19,133 @@
 // Define GPIO pins
 #define HPD_PORT1_GPIO GPIO_NUM_34          // HDMI Port 1 HPD
 #define HPD_PORT2_GPIO GPIO_NUM_35          // HDMI Port 2 HPD
-#define HDMI_5V_CONTROL_GPIO GPIO_NUM_26     // HDMI 5V Control
+#define HDMI_5V_CONTROL_GPIO GPIO_NUM_26    // HDMI 5V Control
 
-// Current Signal Status
+#define DEBOUNCE_TIME_MS 50
+#define BYPASS_DETECTION_THRESHOLD_MS 1000
+
 typedef enum {
     SIGNAL_OFF = 0,
     SIGNAL_ON = 1
 } signal_status_t;
 
+static bool last_port1_state = false;
+static bool last_port2_state = false;
+static int64_t last_change_time = 0;
 static signal_status_t current_signal_status = SIGNAL_OFF;
-
-// Connected Status
 static bool is_connected = false;
+static bool bypass_timer_started = false;
+
+static esp_err_t save_signal_state(void) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_set_u8(nvs_handle, "signal_state", current_signal_status);
+    if (err != ESP_OK) {
+        nvs_close(nvs_handle);
+        return err;
+    }
+
+    err = nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+    return err;
+}
+
+static esp_err_t load_signal_state(void) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open("storage", NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    uint8_t state;
+    err = nvs_get_u8(nvs_handle, "signal_state", &state);
+    if (err == ESP_OK) {
+        current_signal_status = (signal_status_t)state;
+        gpio_set_level(HDMI_5V_CONTROL_GPIO, (state == SIGNAL_ON) ? 1 : 0);
+    }
+
+    nvs_close(nvs_handle);
+    return ESP_OK;
+}
+
+static bool check_connection_status(void) {
+    bool current_port1 = gpio_get_level(HPD_PORT1_GPIO);
+    bool current_port2 = gpio_get_level(HPD_PORT2_GPIO);
+    int64_t current_time = esp_timer_get_time() / 1000; // Convert to ms
+
+    if ((current_port1 != last_port1_state || current_port2 != last_port2_state) && (current_time - last_change_time > DEBOUNCE_TIME_MS)) {
+        last_port1_state = current_port1;
+        last_port2_state = current_port2;
+        last_change_time = current_time;
+        
+        // Update global connection status
+        is_connected = current_port1 && current_port2;
+        
+        // Log connection changes
+        printf("Connection status changed - Port1: %d, Port2: %d\n", current_port1, current_port2);
+    }
+    
+    return is_connected;
+}
+
+static bool check_for_bypass(void) {
+    bool port1_connected = gpio_get_level(HPD_PORT1_GPIO);
+    bool port2_connected = gpio_get_level(HPD_PORT2_GPIO);
+
+    if (!port1_connected || !port2_connected) {
+        // If either port is not connected, this may be a bypass scenario
+        return true;
+    }
+
+    return false;
+}
+
+static void monitor_task(void *pvParameters) {
+    int64_t bypass_start_time = 0;
+
+    while (1) {
+        check_connection_status();
+        bool potential_bypass = check_for_bypass();
+
+        if (potential_bypass && !bypass_timer_started) {
+            // Start timing the potential bypass
+            bypass_timer_started = true;
+            bypass_start_time = esp_timer_get_time() / 1000; // Convert to ms
+        } else if (!potential_bypass) {
+            // Reset bypass detection if connection is restored
+            bypass_timer_started = false;
+        }
+
+        // If bypass has been detected for longer than threshold
+        if (bypass_timer_started && (esp_timer_get_time() / 1000 - bypass_start_time > BYPASS_DETECTION_THRESHOLD_MS)) {
+            // TODO: Notify disconnect event
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100)); // Check every 100ms
+    }
+}
+
+static esp_err_t set_signal_state(signal_status_t new_state) {
+    if (new_state == SIGNAL_ON) {
+        // Only allow signal ON if both ports are connected
+        if (!check_connection_status()) {
+            return ESP_FAIL;
+        }
+    }
+
+    gpio_set_level(HDMI_5V_CONTROL_GPIO, (new_state == SIGNAL_ON) ? 1 : 0); // Enable 5V line
+    current_signal_status = new_state;
+
+    // Save new state to NVS
+    save_signal_state();
+
+    printf("Signal state changed to %s\n", (new_state == SIGNAL_ON) ? "ON" : "OFF");
+    return ESP_OK;
+}
 
 // CORS helper functions
 static void set_cors_headers(httpd_req_t *req) {
@@ -119,7 +236,8 @@ static esp_err_t handle_set_signal(httpd_req_t *req) {
     }
 
     char content[100];
-    int ret, remaining = req->content_len;
+    int ret = ESP_FAIL;
+    int remaining = req->content_len;
 
     if (req->content_len >= sizeof(content)) {
         // Request body too large
@@ -160,14 +278,16 @@ static esp_err_t handle_set_signal(httpd_req_t *req) {
 
     // Set signal status based on received value
     if (strcmp(status_item->valuestring, "ON") == 0) {
-        gpio_set_level(HDMI_5V_CONTROL_GPIO, 1);  // Enable HDMI 5V
-        current_signal_status = SIGNAL_ON;
+        ret = set_signal_state(SIGNAL_ON);
     } else if (strcmp(status_item->valuestring, "OFF") == 0) {
-        gpio_set_level(HDMI_5V_CONTROL_GPIO, 0);  // Disable HDMI 5V
-        current_signal_status = SIGNAL_OFF;
+        ret = set_signal_state(SIGNAL_OFF);
     } else {
+        ret = ESP_FAIL;
+    }
+
+    if (ret != ESP_OK) {
         cJSON_Delete(json);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid status value");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to set signal state");
         return ESP_FAIL;
     }
 
@@ -321,11 +441,24 @@ static void wifi_init(void) {
 }
 
 void app_main(void) {
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
     // Initialize GPIOs
     init_gpio();
 
+    // Load saved signal state
+    load_signal_state();
+
     // Initialize Wi-Fi
     wifi_init();
+
+    // Start monitoring task
+    xTaskCreate(monitor_task, "monitor_task", 2048, NULL, 5, NULL);
 
     // Start the web server
     server_handle = start_webserver();
