@@ -5,6 +5,7 @@
 #include "esp_timer.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_log.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_netif.h"
@@ -23,6 +24,7 @@
 
 #define DEBOUNCE_TIME_MS 50
 #define BYPASS_DETECTION_THRESHOLD_MS 1000
+#define TAG "SCREEN_SENTRY"
 
 typedef enum {
     SIGNAL_OFF = 0,
@@ -86,7 +88,7 @@ static bool check_connection_status(void) {
         is_connected = current_port1 && current_port2;
         
         // Log connection changes
-        printf("Connection status changed - Port1: %d, Port2: %d\n", current_port1, current_port2);
+        ESP_LOGI(TAG, "Connection status changed - Port1: %d, Port2: %d", current_port1, current_port2);
     }
     
     return is_connected;
@@ -98,6 +100,7 @@ static bool check_for_bypass(void) {
 
     if (!port1_connected || !port2_connected) {
         // If either port is not connected, this may be a bypass scenario
+        ESP_LOGW(TAG, "Potential bypass detected - Port1: %d, Port2: %d", port1_connected, port2_connected);
         return true;
     }
 
@@ -105,6 +108,7 @@ static bool check_for_bypass(void) {
 }
 
 static void monitor_task(void *pvParameters) {
+    ESP_LOGI(TAG, "Starting monitor task");
     int64_t bypass_start_time = 0;
 
     while (1) {
@@ -115,13 +119,16 @@ static void monitor_task(void *pvParameters) {
             // Start timing the potential bypass
             bypass_timer_started = true;
             bypass_start_time = esp_timer_get_time() / 1000; // Convert to ms
+            ESP_LOGW(TAG, "Starting bypass detection timer");
         } else if (!potential_bypass) {
             // Reset bypass detection if connection is restored
             bypass_timer_started = false;
+            ESP_LOGI(TAG, "Bypass condition cleared");
         }
 
         // If bypass has been detected for longer than threshold
         if (bypass_timer_started && (esp_timer_get_time() / 1000 - bypass_start_time > BYPASS_DETECTION_THRESHOLD_MS)) {
+            ESP_LOGW(TAG, "Bypass confirmed after %d ms", BYPASS_DETECTION_THRESHOLD_MS);
             // TODO: Notify disconnect event
         }
 
@@ -133,6 +140,7 @@ static esp_err_t set_signal_state(signal_status_t new_state) {
     if (new_state == SIGNAL_ON) {
         // Only allow signal ON if both ports are connected
         if (!check_connection_status()) {
+            ESP_LOGW(TAG, "Cannot enable signal - Both ports are not connected");
             return ESP_FAIL;
         }
     }
@@ -143,7 +151,7 @@ static esp_err_t set_signal_state(signal_status_t new_state) {
     // Save new state to NVS
     save_signal_state();
 
-    printf("Signal state changed to %s\n", (new_state == SIGNAL_ON) ? "ON" : "OFF");
+    ESP_LOGI(TAG, "Signal state changed to %s", (new_state == SIGNAL_ON) ? "ON" : "OFF");
     return ESP_OK;
 }
 
@@ -441,6 +449,8 @@ static void wifi_init(void) {
 }
 
 void app_main(void) {
+    ESP_LOGI(TAG, "Starting Screen Sentry");
+
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -449,20 +459,25 @@ void app_main(void) {
     ESP_ERROR_CHECK(ret);
 
     // Initialize GPIOs
+    ESP_LOGI(TAG, "Initializing GPIOs");
     init_gpio();
 
     // Load saved signal state
+    ESP_LOGI(TAG, "Loading saved signal state");
     load_signal_state();
 
     // Initialize Wi-Fi
+    ESP_LOGI(TAG, "Initializing Wi-Fi");
     wifi_init();
 
     // Start monitoring task
+    ESP_LOGI(TAG, "Starting monitor task");
     xTaskCreate(monitor_task, "monitor_task", 2048, NULL, 5, NULL);
 
     // Start the web server
+    ESP_LOGI(TAG, "Starting web server");
     server_handle = start_webserver();
 
-    // TODO: Handle graceful shutdown
+    ESP_LOGI(TAG, "Initialization complete");
 }
 
