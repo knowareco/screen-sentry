@@ -1,6 +1,3 @@
-<script setup lang="ts">
-</script>
-
 <template>
     <main>
         <h2 class="mt-12 text-center text-white font-semibold text-3xl">Screen Sentry</h2>
@@ -10,7 +7,7 @@
         </p>
 
         <p class="mt-2 text-center text-white">
-            Connected: <span class="text-violet-400 font-semibold">{{ connected ? 'TRUE' : 'FALSE' }}</span>
+            Connected: <span class="text-violet-400 font-semibold">{{ isConnected ? 'TRUE' : 'FALSE' }}</span>
         </p>
 
         <div class="flex justify-center">
@@ -42,17 +39,17 @@
 <script setup lang="ts">
     import { ref, onMounted, onBeforeUnmount } from 'vue';
 
+    enum SignalStatus {
+        ON = 'ON',
+        OFF = 'OFF'
+    }
+
     const isLoading = ref<boolean>(true);
     const signalStatus = ref<SignalStatus>(SignalStatus.OFF);
     const isConnected = ref<boolean>(false);
     const isPolling = ref<boolean>(true);
     let pollingInterval: number | undefined;
     const backendURL = 'http://localhost:8000';
-
-    enum SignalStatus {
-        ON = 'ON',
-        OFF = 'OFF'
-    }
 
     function togglePolling() {
         if (isPolling.value) {
@@ -132,9 +129,9 @@
             const data = await response.json();
 
             if (data.success) {
-                signalStatus.value = response.data.status;
+                signalStatus.value = data.status;
             } else {
-                throw new Error(response.data.message || 'Failed to toggle signal');
+                throw new Error(data.message || 'Failed to toggle signal');
             }
         } catch (error) {
             console.error(`Error toggling signal to ${status}: `, error);
