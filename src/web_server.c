@@ -179,7 +179,7 @@ static const httpd_uri_t signal_status_uri = {
 };
 
 static const httpd_uri_t set_signal_uri = {
-    .uri       = "/api/set-signal",
+    .uri       = "/api/toggle-signal",
     .method    = HTTP_POST,
     .handler   = handle_set_signal,
     .user_ctx  = NULL
